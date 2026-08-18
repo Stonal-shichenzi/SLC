@@ -536,36 +536,12 @@ chinese_character_font_data_tiny = pygame.font.SysFont(["SimHei", "黑体", "微
 chinese_character_font_data_large = pygame.font.SysFont(["SimHei", "黑体", "微软雅黑", "Noto Sans SC"], 24)
 chinese_character_font_data_huge = pygame.font.SysFont(["SimHei", "黑体", "微软雅黑", "Noto Sans SC"], 32)
 title_value = "Plain Collection Launcher"
-ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("stonal.stonals-launcher-collection.main.{}".format(minecraft_operator.config.basic_config["launcher_version"]))
-text_title = font_data.render("Stonal's Laucher Collection", True, colour.White)
 pygame.display.set_caption("Stonal's Laucher Collection")
 screen = pygame.display.set_mode((1200, 800), pygame.NOFRAME | pygame.HWSURFACE | pygame.SHOWN)
-icon = pillow_to_pygame(Image.open("icons/icon.png")).convert_alpha()
+icon = pillow_to_pygame(Image.open("icons/icon.png"), logger).convert_alpha()
+ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("stonal.stonals-launcher-collection.main.{}".format(time.strftime("%Y%m%d%H%M%S", time.localtime())))
 pygame.display.set_icon(icon)
-# 加载图标
-# hicon = win32gui.LoadImage(None, "icon.ico", win32con.IMAGE_ICON, 0, 0, win32con.LR_LOADFROMFILE)
-# hwnd = win32gui.GetForegroundWindow()
-# win32gui.SetClassLong(hwnd, win32con.GCL_HICON, hicon)
-# logger.info("Icon loaded: {}".format(icon.get_size()))
-# while not icon:
-#     logger.info("Icon loaded: {}".format(icon.get_size()))
-#     icon = pillow_to_pygame(Image.open("icons/icon.ico")).convert_alpha()
-# if sys.platform == "win32":
-#     try:
-#         # 获取窗口句柄
-#         hwnd = pygame.display.get_wm_info()["window"]
-#         user32 = ctypes.windll.user32
-#         # 从外部 .ico 文件加载 (备选)
-#         icon_handle = user32.LoadImageW(0, "./icons/icon.ico", 1, 0, 0, 0x10)
-#         # 发送 WM_SETICON 消息
-#         if icon_handle:
-#             # ICON_SMALL = 0, WM_SETICON = 0x0080
-#             user32.SendMessageW(hwnd, 0x0080, 0, icon_handle)
-#             user32.SendMessageW(hwnd, 0x0080, 1, icon_handle)
-#         else:
-#             logger.warning("Failed to load icon: {}".format(e))
-#     except Exception as e:
-#         logger.error("Failed to set taskbar icon: {}".format(e))
+text_title = font_data.render("Stonal's Laucher Collection", True, colour.White)
 screen.fill(colour.White)
 recent_download_version_manifest_temporary: float = 0
 ran_download_version_manifest = True

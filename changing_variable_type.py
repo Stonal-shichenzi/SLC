@@ -1,7 +1,8 @@
 import PIL.Image as __image
 import io as __io
 import pygame as __pygame
-def pillow_to_pygame(pil_image: __image.Image) -> __pygame.Surface:
+from logging import Logger as __logger
+def pillow_to_pygame(pil_image: __image.Image, logger: __logger = None) -> __pygame.Surface:
     # Change Format To RGBA
     if pil_image.mode not in ("RGB", "RGBA"):
         pil_image = pil_image.convert("RGBA")
@@ -15,4 +16,5 @@ def pillow_to_pygame(pil_image: __image.Image) -> __pygame.Surface:
             pygame_surface = __pygame.image.load(buffer).convert_alpha()
         return pygame_surface
     except Exception as e:
-        pass
+        if logger is not None:
+            logger.critical("Invalid pillow image: {}".format(e))
