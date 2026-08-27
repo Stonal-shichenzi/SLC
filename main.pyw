@@ -429,7 +429,7 @@ def launch_minecraft_main():
             argument_value = minecraft_operator.launch.build_launch_bash_string(version_name, logger)
             logger.info("Ready to launch minecraft: {0}\nArgument array: {1}".format(version_name, argument_array))
             logger.debug("Argument string: {}".format(argument_value))
-            minecraft_process = subprocess.Popen(argument_array, creationflags=subprocess.CREATE_NO_WINDOW, cwd=".")
+            minecraft_process = subprocess.Popen(argument_array, creationflags=subprocess.CREATE_NO_WINDOW, cwd=".minecraft/versions/{}".format(version_name))
             logger.info("Minecraft launched")
     except Exception as error:
         exception_type, exception_value, exception_traceback = sys.exc_info()
@@ -443,6 +443,10 @@ if not os.path.isdir(".minecraft/versions"):
 
 if not os.path.isdir("temp"):
     os.mkdir("temp")
+if not os.path.isfile("temp/command_output.txt"):
+    command_output = open("temp/command_output.txt", mode="w")
+    command_output.write("{}")
+    command_output.close()
 
 if not os.path.isdir("logs"):
     os.mkdir("logs")
