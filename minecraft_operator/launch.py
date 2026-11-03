@@ -353,8 +353,8 @@ def replace_argument_in_argument(game_argv: str, version_name: str, account: dic
     import os
     game_argv = game_argv.replace("${auth_player_name}", account["user"])
     game_argv = game_argv.replace("${version_name}", version_name)
-    game_argv = game_argv.replace("${game_directory}", ".minecraft/versions/{}".format(version_name))
-    game_argv = game_argv.replace("${assets_root}", ".minecraft/assets")
+    game_argv = game_argv.replace("${game_directory}", os.path.abspath(".minecraft/versions/{}".format(version_name)))
+    game_argv = game_argv.replace("${assets_root}", os.path.abspath(".minecraft/assets"))
     game_argv = game_argv.replace("${assets_index_name}", version_json["assetIndex"]["id"])
     game_argv = game_argv.replace("${auth_uuid}", account["game_uuid"])
     game_argv = game_argv.replace("${auth_access_token}", account["access_token"] if account["type"] == "microsoft_account" else "0")

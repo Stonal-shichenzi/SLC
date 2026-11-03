@@ -1,4 +1,4 @@
-import pygame, logging, json, os, time, launcher_data, minecraft_operator, threading, pyperclip, download_files, random, math, icon_drawer, io, subprocess, traceback, sys, ctypes, tempfile
+import pygame, logging, json, os, time, launcher_data, minecraft_operator, threading, pyperclip, download_files, random, math, icon_drawer, io, subprocess, traceback, sys, ctypes, tempfile, re
 import requests as web
 from standard_service import colour
 from PIL import Image, ImageFont
@@ -179,6 +179,26 @@ def get_account_enabled(logger_recording = True):
             else:
                 result_data[i["type"]] = i
     return result_data
+def get_gamerule(key: str, logger_recording = True):
+    # 启动器状态
+    global logger
+    launcher_rules: dict = get_config("launcher_rules", dict(), logger_recording)
+    if key in launcher_rules:
+        if logger_recording:
+            logger.info("Gamerule {0} -> {1}".format(key, launcher_rules[key]))
+        return launcher_rules[key]
+    else:
+        if logger_recording:
+            logger.info("Gamerule {} is none".format(key))
+        return None
+def set_gamerule(key: str, value, logger_recording = True):
+    # 启动器状态
+    launcher_rules: dict = get_config("launcher_rules", dict(), logger_recording)
+    launcher_rules[key] = value
+    set_config("launcher_rules", launcher_rules, logger_recording)
+    if logger_recording:
+        global logger
+        logger.info("Gamerule {0} is changed into {1}".format(key, value))
 def string_remove_index(string: str, index: int) -> str:
     # 正数、负数都适用
     return string[0:index] + string[index + 1:]
@@ -232,6 +252,50 @@ def inputting(event):
     else:
         input_text = string_insert_index(input_text, inputting_text_cursor_location, event.unicode)
         inputting_text_cursor_location += 1
+def terminal_inputting(event):
+    global inputting_text_cursor_location_terminal, terminal_console_history, terminal_inputting_text
+    key_value: int = event.key
+    key_name = pygame.key.name(key_value)
+    if key_value == pygame.K_RETURN or key_value == pygame.K_KP_ENTER:
+        logger.info("Input \"{}\" in terminal".format(terminal_inputting_text))
+        terminal_console_history.append("> {}".format(terminal_inputting_text))
+        terminal_run_command(terminal_inputting_text)
+        terminal_inputting_text = str()
+    elif key_value == pygame.K_BACKSPACE:
+        # if inputting_text_cursor_location_terminal > 0:
+        #     terminal_inputting_text = string_remove_index(terminal_inputting_text, inputting_text_cursor_location_terminal - 1)
+        #     inputting_text_cursor_location_terminal -= 1
+        terminal_inputting_text = terminal_inputting_text[0:-1]
+    elif key_value == pygame.K_DELETE:
+        # if inputting_text_cursor_location_terminal < len(terminal_inputting_text):
+        #     terminal_inputting_text = string_remove_index(terminal_inputting_text, inputting_text_cursor_location_terminal)
+        pass
+    elif key_value == pygame.K_INSERT:
+        # terminal_inputting_text = string_insert_index(terminal_inputting_text, inputting_text_cursor_location_terminal, pyperclip.paste())
+        # inputting_text_cursor_location_terminal += len(pyperclip.paste())
+        terminal_inputting_text += pyperclip.paste()
+    elif key_value == pygame.K_SPACE or key_value == pygame.K_TAB:
+        # terminal_inputting_text = string_insert_index(terminal_inputting_text, inputting_text_cursor_location_terminal, " ")
+        # inputting_text_cursor_location_terminal += 1
+        terminal_inputting_text += " "
+    elif key_value == pygame.K_ESCAPE:
+        terminal_inputting_text = str()
+    elif key_value == pygame.K_LEFT and inputting_text_cursor_location_terminal > 0:
+        # inputting_text_cursor_location_terminal -= 1
+        pass
+    elif key_value == pygame.K_RIGHT and inputting_text_cursor_location_terminal < len(terminal_inputting_text):
+        # inputting_text_cursor_location_terminal += 1
+        pass
+    elif key_value == pygame.K_UP or key_value == pygame.K_HOME:
+        # inputting_text_cursor_location_terminal = 0
+        pass
+    elif key_value == pygame.K_DOWN or key_value == pygame.K_END:
+        # inputting_text_cursor_location_terminal = len(terminal_inputting_text)
+        pass
+    else:
+        # terminal_inputting_text = string_insert_index(terminal_inputting_text, inputting_text_cursor_location_terminal, event.unicode)
+        # inputting_text_cursor_location_terminal += 1
+        terminal_inputting_text += event.unicode
 def get_forms(key: str) -> str:
     global forms
     if key in forms:
@@ -435,6 +499,95 @@ def launch_minecraft_main():
         exception_type, exception_value, exception_traceback = sys.exc_info()
         last_frame = traceback.extract_tb(exception_traceback)[-1]
         logger.error("An error happened at line {0} of {1}: type {2}, content: {3}".format(last_frame.lineno, os.path.basename(last_frame.filename), exception_type.__name__, error))
+def send_global_message(message: str):
+    global messages_array, timer
+    if not message:
+        return None
+    message_surface: pygame.Surface = None
+    if message.isascii():
+        message_surface = font_data.render(message, True, colour.Black)
+    else:
+        message_surface = chinese_character_font_data.render(message, True, colour.Black)
+    background = pygame.Surface((message_surface.get_width() + 14, 30), pygame.SRCALPHA)
+    pygame.draw.rect(background, colour.Gainsboro, pygame.Rect(0, 0, message_surface.get_width() + 14, 30), border_radius=10)
+    background.blit(message_surface, (7, 7))
+    position_of_background: tuple = (600 - background.get_width() // 2, 750)
+    messages_array.append((background, position_of_background, timer))
+def terminal_run_command(command: str):
+    global terminal_console_history, logger
+    if re.fullmatch(r"/?\s*", command):
+        logger.info("Command empty".format(command))
+        return None
+    if command[0] == "/":
+        command = command[1:]
+    logger.info("Command: {}".format(command))
+    command_token = command.split()
+    if command_token[0] == "gamemode":
+        global launcher_mode_is_developer
+        if len(command_token) != 2:
+            terminal_console_history.append("! Invalid syntax: {}".format(command))
+            return None
+        if command_token[1] == "survival":
+            launcher_mode_is_developer = False
+            terminal_console_history.append("< The mode has changed into survival (user).")
+        elif command_token[1] == "creative":
+            launcher_mode_is_developer = True
+            terminal_console_history.append("< The mode has changed into creative (developer).")
+        else:
+            terminal_console_history.append("! Unsupported mode {}.".format(command))
+    elif command_token[0] == "gamerule":
+        if len(command_token) == 1:
+            terminal_console_history.append("! Invalid syntax: {}".format(command))
+            return None
+        gamerule_name = command_token[1]
+        if len(command_token) == 2:
+            terminal_console_history.append("< The rule of {0} is {1}.".format(gamerule_name, get_gamerule(gamerule_name)))
+        elif len(command_token) == 3:
+            if not launcher_mode_is_developer:
+                terminal_console_history.append("! Lack of permission, please run in creative mode.")
+                return None
+            value = command_token[2]
+            if value.isdecimal():
+                value_storage = int(value)
+            elif re.fullmatch(r"\d*\.\d+", value):
+                value_storage = float(value)
+            elif value == "true":
+                value_storage = True
+            elif value == "false":
+                value_storage = False
+            else:
+                terminal_console_history.append("! Unknown value {}.".format(value))
+                return None
+            set_gamerule(gamerule_name, value_storage)
+            terminal_console_history.append("< The rule of {0} has changed into {1}.".format(gamerule_name, get_gamerule(gamerule_name)))
+        else:
+            terminal_console_history.append("! Invalid syntax: {}".format(command))
+    elif command_token[0] == "kill":
+        global choosing_page, options
+        choosing_page = options["before_opening_terminal"]
+        terminal_console_history.append("< Killed the terminal.")
+    elif command_token[0] == "say":
+        terminal_console_history.append("< {}".format(" ".join(command_token[1:])))
+    elif command_token[0] == "title":
+        if command_token[1] != "@s":
+            terminal_console_history.append("! Unsupported target selector {}.".format(command_token[1]))
+            return None
+        if command_token[2] != "actionbar":
+            terminal_console_history.append("! Unsupported location {}; only \"actionbar\" is supported.".format(command_token[1]))
+            return None
+        text_to_display = " ".join(command_token[3:])
+        if text_to_display[0] == "\"" and text_to_display[-1] == "\"":
+            text_to_display = text_to_display.replace("\\\"", "\"")
+            text_to_display = text_to_display.replace("\\\\", "\\")
+            text_to_display = text_to_display.replace("\\'", "'")
+            text_to_display = text_to_display.replace("\\t", " ")
+            text_to_display = text_to_display[1:-1]
+        send_global_message(text_to_display)
+        terminal_console_history.append("< Displayed \"{}\" in action bar.".format(text_to_display))
+    elif command_token[0] == "clear":
+        terminal_console_history.clear()
+    else:
+        terminal_console_history.append("! Unsupported command {}.".format(command_token[0]))
 
 if not os.path.isdir(".minecraft"):
     os.mkdir(".minecraft")
@@ -481,6 +634,7 @@ if not os.path.isfile("config/account.json"):
     config.close()
 
 options = {
+    "before_opening_terminal": 0,
     "choosing_resource_number": 0,
     "choosing_setting_number": 0,
     "choosing_version_pages_index": 0,
@@ -506,14 +660,20 @@ setting_display_array = [
     "启动",
     "程序",
     "账号",
-    "实例"
+    "实例",
+    "关于"
 ]
+
+# 启动器版本，常量
+LAUNCHER_VERSION_NAME = "26w43a"
 
 PAGE_OF_VERSION_DOWNLOAD = -1
 PAGE_OF_VERSION_CHOOSING = -2
+PAGE_OF_TERMINAL = -65535
 PAGE_OF_THINKING = -65536
 ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION = 26
 ELEMENT_NUMBER_OF_ONE_PAGE_IN_CHOOSING_VERSION = 28
+PREVENT_DOWNLOADING_MINECRAFT = True                                    # 阻止下载Minecraft本体
 forms = {}
 choosing_page = 0
 # build_resource_necessary_calculating_thread = None
@@ -525,13 +685,21 @@ minecraft_process = None
 game_version_total_pages = 0
 game_version_total = 0
 inputting_text_cursor_location = 0
+inputting_text_cursor_location_terminal = 0
 downloading_game_version = 0
 building_necessary_resource = False
 launching_game_step = 0                                                 # 0表示空闲，即没有进行启动操作
 config_version_name = str()
 building_resource_config_version_name = str()
+messages_array = list()
+developer_clicks = 0                                                    # 按7次进入开发者模式
+terminal_console_history = list()
+terminal_inputting_text = str()
+launcher_mode_is_developer = False
 pygame.init()
+global_clock = pygame.time.Clock()
 looping = True
+timer = 0
 large_font_data = pygame.font.SysFont(["Arial", "SimHei", "黑体", "微软雅黑", "Noto Sans SC"], 32)
 font_data = pygame.font.SysFont(["Arial", "SimHei", "黑体", "微软雅黑", "Noto Sans SC"], 16)
 chinese_character_font_data = pygame.font.SysFont(["SimHei", "黑体", "微软雅黑", "Noto Sans SC"], 16)
@@ -539,6 +707,7 @@ chinese_character_font_data_small = pygame.font.SysFont(["SimHei", "黑体", "�
 chinese_character_font_data_tiny = pygame.font.SysFont(["SimHei", "黑体", "微软雅黑", "Noto Sans SC"], 8)
 chinese_character_font_data_large = pygame.font.SysFont(["SimHei", "黑体", "微软雅黑", "Noto Sans SC"], 24)
 chinese_character_font_data_huge = pygame.font.SysFont(["SimHei", "黑体", "微软雅黑", "Noto Sans SC"], 32)
+font_console = pygame.font.SysFont(["Consolas", "JetBrainsMonoNL", "JetBrains Mono NL", "Courier New"], 12)
 title_value = "Plain Collection Launcher"
 pygame.display.set_caption("Stonal's Laucher Collection")
 screen = pygame.display.set_mode((1200, 800), pygame.NOFRAME | pygame.HWSURFACE | pygame.SHOWN)
@@ -549,7 +718,7 @@ text_title = font_data.render("Stonal's Laucher Collection", True, colour.White)
 screen.fill(colour.White)
 recent_download_version_manifest_temporary: float = 0
 ran_download_version_manifest = True
-if len(os.listdir("temp")) > 1:
+if len(os.listdir(".minecraft/versions")) > 1:
     recent_download_version_manifest_temporary_file_name = max(os.listdir("temp"))
     recent_download_version_manifest_temporary_time_number = recent_download_version_manifest_temporary_file_name[17:26]
     recent_download_version_manifest_temporary = time.mktime(time.strptime(recent_download_version_manifest_temporary_time_number, "%Y%j%H"))
@@ -569,10 +738,10 @@ try:
             # 菜单高亮
             screen.blit(choosing_menu, (0, 0))
             display_cursor_type = pygame.SYSTEM_CURSOR_HAND
-        if position_in_rect(position, 1080, 0, 40, 35):
-            # 思索
-            # screen.blit(choosing_menu, (1080, 0))
-            pass
+        if position_in_rect(position, 1080, 0, 40, 35) :
+            # 开发者模式
+            if developer_clicks >= 7:
+                screen.blit(choosing_menu, (1080, 0))
         if position_in_rect(position, 1120, 0, 40, 35):
             # 最小化
             screen.blit(choosing_menu, (1120, 0))
@@ -593,6 +762,12 @@ try:
         # pygame.draw.line(screen, colour.DarkSlateBlue, (1090, 20), (1100, 25))
         # pygame.draw.line(screen, colour.DarkSlateBlue, (1110, 10), (1100, 15))
         # pygame.draw.line(screen, colour.DarkSlateBlue, (1110, 20), (1100, 25))
+        if developer_clicks >= 7:
+            pygame.draw.line(screen, colour.DarkSlateBlue, (1092.5, 10), (1092.5, 25))
+            pygame.draw.line(screen, colour.DarkSlateBlue, (1092.5, 10), (1107.5, 17.5))
+            pygame.draw.line(screen, colour.DarkSlateBlue, (1092.5, 25), (1107.5, 17.5))
+        if len(os.listdir("temp")) < 1:
+            set_config("choosing_version", None)
         # 菜单
         if options["opening_menu"]:
             pygame.draw.rect(screen, colour.DarkSlateBlue, pygame.Rect(0, 35, 200, 765))
@@ -667,7 +842,8 @@ try:
                 screen.blit(font_data.render("Minecraft: Java Edition / MC-276156", True, colour.Black), (int(options["opening_menu"]) * 200 + 7, HOMEPAGE_Y_BEGIN + 7))
                 screen.blit(font_data.render("minecraft java should sign up for free not needed for buy this mean hell to cracked players", True, colour.Black), (int(options["opening_menu"]) * 200 + 7, HOMEPAGE_Y_BEGIN + 37))
                 screen.blit(chinese_character_font_data.render("译：Java版Minecraft应当免费而不是付费注册，这对疯狂的玩家来说就是地狱", True, colour.Black), (int(options["opening_menu"]) * 200 + 7, HOMEPAGE_Y_BEGIN + 67))
-            if len(os.listdir("temp")) > 1:
+                screen.blit(chinese_character_font_data.render("悲报：PCL老师，我还记得你 QwQ", True, colour.Black), (int(options["opening_menu"]) * 200 + 7, HOMEPAGE_Y_BEGIN + 97))
+            if (len(os.listdir(".minecraft/versions")) > 0) and (get_config("choosing_version", None, False) is not None):
                 screen.blit(chinese_character_font_data.render("选择的版本：{}".format(get_config("choosing_version", max(os.listdir(".minecraft/versions")), False)), True, colour.Black), (int(options["opening_menu"]) * 200 + 7, 737))
         if choosing_page == 1:
             # 设置
@@ -784,6 +960,12 @@ try:
                     pygame.draw.rect(screen, colour.WhiteSmoke, pygame.Rect(opening + 10, 80, 190, 30))
                 pygame.draw.rect(screen, colour.Gainsboro, pygame.Rect(opening + 10, 80, 190, 30), 1)
                 screen.blit(chinese_character_font_data.render("补全依赖库", True, colour.Black), (opening + 65, 87))
+            elif options["choosing_setting_number"] == len(setting_display_array) - 1:
+                opening = int(options["opening_menu"]) * 200
+                if position_in_rect(position, opening, 70, 1200 - opening, 30):
+                    pygame.draw.rect(screen, colour.WhiteSmoke, pygame.Rect(opening, 70, 1200 - opening, 30))
+                screen.blit(chinese_character_font_data.render("启动器版本", True, colour.Black), (int(options["opening_menu"]) * 200 + 7, 77))
+                screen.blit(chinese_character_font_data.render(LAUNCHER_VERSION_NAME, True, colour.Black), (1145, 77))
         if choosing_page == 2:
             # 资源
             opening = int(options["opening_menu"]) * 200
@@ -797,7 +979,9 @@ try:
             if time.time() - recent_download_version_manifest_temporary >= 3600 and not running_download_version_manifest:
                 download_version_manifest_thread = thread_pool_executor.submit(download_version_manifest_main)
                 download_version_manifest_thread.add_done_callback(download_version_manifest_callback)
-            if options["choosing_resource_number"] == 0:
+            if not get_gamerule("enable_minecraft_download") and PREVENT_DOWNLOADING_MINECRAFT:
+                screen.blit(chinese_character_font_data.render("为了遵守相关法律法规，SLC不再提供Minecraft下载，非常抱歉", True, colour.Black), (opening + 10, 80))
+            elif options["choosing_resource_number"] == 0:
                 if len(os.listdir("temp")) > 1:
                     recent_download_version_manifest_temporary_file_name = "temp/" + max(list(set(os.listdir("temp")).symmetric_difference({"command_output.txt"})))
                     recent_download_version_manifest_temporary_file_class = open(recent_download_version_manifest_temporary_file_name, encoding="utf-8", mode="r")
@@ -818,12 +1002,11 @@ try:
             elif options["choosing_resource_number"] == 1:
                 if len(os.listdir("temp")) > 1:
                     if ran_download_version_manifest:
-                        if os.listdir("temp"):
-                            ran_download_version_manifest = False               # 确保仅仅刚刚完成下载才加载，防止死循环未响应
-                            recent_download_version_manifest_temporary_file_name = "temp/" + max(os.listdir("temp"))
-                            recent_download_version_manifest_temporary_file_class = open(recent_download_version_manifest_temporary_file_name, encoding="utf-8", mode="r")
-                            recent_download_version_manifest_content: dict = json.load(recent_download_version_manifest_temporary_file_class)
-                            version_array = recent_download_version_manifest_content["versions"]
+                        ran_download_version_manifest = False               # 确保仅仅刚刚完成下载才加载，防止死循环未响应
+                        recent_download_version_manifest_temporary_file_name = "temp/" + max(os.listdir("temp"))
+                        recent_download_version_manifest_temporary_file_class = open(recent_download_version_manifest_temporary_file_name, encoding="utf-8", mode="r")
+                        recent_download_version_manifest_content: dict = json.load(recent_download_version_manifest_temporary_file_class)
+                        version_array = recent_download_version_manifest_content["versions"]
                     game_version_total_pages = math.ceil(len(version_array) / ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION)
                     game_version_total = len(version_array)
                     # 页数
@@ -905,6 +1088,12 @@ try:
                 pygame.draw.line(screen, colour.Black, (1100, 35), (1100, 60))
                 screen.blit(chinese_character_font_data.render("思索", True, colour.Black), (1084, 64))
                 screen.blit(chinese_character_font_data.render("你现在正在干的事", True, colour.Black), (1036, 84))
+        if choosing_page == PAGE_OF_TERMINAL:
+            # 终端、命令
+            pygame.draw.rect(screen, colour.DarkSlateGray, pygame.Rect(0, 35, 1200, 765))
+            for i in range(len(terminal_console_history)):
+                screen.blit(font_console.render(terminal_console_history[i], True, colour.White), (3, 15 * i + 40))
+            screen.blit(font_console.render("> {}".format(terminal_inputting_text), True, colour.White), (3, 785))
         # 事件
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -913,7 +1102,9 @@ try:
             elif event.type == pygame.KEYDOWN:
                 # logger.info("Pressed key")
                 logger.info("Pressed key {0}, also known as {1}".format(event.key, pygame.key.name(event.key)))
-                if options["input_form"] != 0:
+                if choosing_page == PAGE_OF_TERMINAL:
+                    terminal_inputting(event)
+                elif options["input_form"] != 0:
                     inputting(event)
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1:
@@ -923,11 +1114,15 @@ try:
                         logger.info("Clicked the menu")
                         options["opening_menu"] = not options["opening_menu"]
                     if position_in_rect(position, 1080, 0, 40, 35):
-                        # 思索该页面
+                        # 开发者模式
                         # logger.info("Clicked to think")
                         # options["thinking_page"] = choosing_page
                         # choosing_page = PAGE_OF_THINKING
-                        pass
+                        if choosing_page == PAGE_OF_TERMINAL:
+                            choosing_page = options["before_opening_terminal"]
+                        else:
+                            options["before_opening_terminal"] = choosing_page
+                            choosing_page = PAGE_OF_TERMINAL
                     if position_in_rect(position, 1120, 0, 40, 35):
                         # 最小化启动器
                         logger.info("Clicked to iconify")
@@ -936,8 +1131,8 @@ try:
                         # 退出启动器
                         logger.info("Clicked to close")
                         looping = False
-                    # 菜单点击事件
-                    if options["opening_menu"]:
+                    # 菜单点击事件，过滤命令页面
+                    if options["opening_menu"] and choosing_page != PAGE_OF_TERMINAL:
                         for i in range(5):
                             if position_in_rect(position, 0, 35 * i + 35, 200, 35):
                                 choosing_page = i
@@ -1013,6 +1208,14 @@ try:
                                 build_resource_necessary_thread = thread_pool_executor.submit(build_resource_necessary_main)
                                 build_resource_necessary_thread.add_done_callback(build_resource_necessary_callback)
                                 build_resource_necessary_calculating_thread = thread_pool_executor.submit(minecraft_operator.launch.build_resource_necessary_calculating, building_resource_config_version_name)
+                        elif options["choosing_setting_number"] == len(setting_display_array) - 1:
+                            if position_in_rect(position, opening, 70, 1200 - opening, 30):
+                                developer_clicks += 1
+                                logger.info("Clicked the version: {}".format(developer_clicks))
+                                if developer_clicks > 2 and developer_clicks < 7:
+                                    send_global_message("再点击{}次进入开发者模式".format(7 - developer_clicks))
+                                elif developer_clicks == 7:
+                                    send_global_message("您现在是开发者模式".format(7 - developer_clicks))
                     elif choosing_page == 2:
                         # 资源 页面交互逻辑
                         for i in range(len(resource_display_array)):
@@ -1119,13 +1322,27 @@ try:
             forms["game_version_name"] = input_text
         elif options["input_form"] == 2:
             forms["player_name"] = input_text
+        # 消息
+        for message in messages_array:
+            message_surface: pygame.Surface = None
+            message_position: tuple = ()
+            message_time = 0
+            message_surface, message_position, message_time = message
+            message_surface_alpha = message_surface
+            delta_time = timer - message_time
+            if delta_time < 200:
+                message_surface_alpha.set_alpha(int(256 - delta_time * 1.28))
+                screen.blit(message_surface, message_position)
         pygame.mouse.set_cursor(display_cursor_type)
         pygame.display.flip()
+        timer += 1
+        global_clock.tick(100)
 except Exception as error:
     exception_type, exception_value, exception_traceback = sys.exc_info()
     last_frame = traceback.extract_tb(exception_traceback)[-1]
     logger.critical("An error happened at line {0} of {1}: type {2}, content: {3}".format(last_frame.lineno, os.path.basename(last_frame.filename), exception_type.__name__, error))
     logger.critical("Stopping with quite a serious error")
+    logger.debug("Traceback:\n{}".format(traceback.format_exc()))
 finally:
     pygame.quit()
     logger.info("Stopping!")
