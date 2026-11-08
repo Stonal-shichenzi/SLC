@@ -332,7 +332,8 @@ def build_launch_bash_array(choosing_version_folder_name: str, logger: __logging
                         if "-Xmx" in j or "-Xms" in j:
                             continue
                         launcher_command.append(j)
-    launcher_command.append("net.minecraft.client.main.Main")
+    # launcher_command.append("net.minecraft.client.main.Main")
+    launcher_command.append(version_json.get("mainClass", "net.minecraft.client.main.Main"))
     for i in version_json["arguments"]["game"]:
         if isinstance(i, str):
             game_argv: str = replace_argument_in_argument(i, choosing_version_folder_name, account, version_json, java_executor_files_most_suitable)

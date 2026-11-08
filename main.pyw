@@ -1,5 +1,8 @@
-import pygame, logging, json, os, time, launcher_data, minecraft_operator, threading, pyperclip, download_files, random, math, icon_drawer, io, subprocess, traceback, sys, ctypes, tempfile, re
+# -*- coding: utf-8 -*-
+
+import pygame, logging, json, os, time, launcher_data, minecraft_operator, threading, pyperclip, download_files, random, math, icon_drawer, io, subprocess, traceback, sys, ctypes, tempfile, re, modloader, nbt_loader, community_resource
 import requests as web
+import concurrent.futures
 from standard_service import colour
 from PIL import Image, ImageFont
 from changing_variable_type import pillow_to_pygame
@@ -30,21 +33,25 @@ def is_all_ascii(string: str) -> bool:
 def build_uuid() -> str:
     return "00534c43-{0}-4fff-bfff-{1}".format(eval("+".join(["hex(random.randint(0, 15))[2]"] * 4)), eval("+".join(["hex(random.randint(0, 15))[2]"] * 12)))
 def get_config(key: str, default = None, logger_recording = True):
-    config = open("config/launcher.json", mode="r", encoding="utf-8")
-    config.seek(0)
-    config_data = json.load(config)
-    if logger_recording:
-        logger.info("Loaded configure: {}".format(config_data))
-    config.close()
-    if key in config_data:
+    try:
+        config = open("config/launcher.json", mode="r", encoding="utf-8")
+        config.seek(0)
+        config_data = json.load(config)
         if logger_recording:
-            logger.info("Key for {0} -> \"{1}\"".format(key, config_data[key]))
-        return config_data[key]
-    else:
-        if logger_recording:
-            logger.info("Key for {0} -> undefined".format(key))
-        # return minecraft_operator.config.basic_config[key]
-        return default
+            logger.info("Loaded configure: {}".format(config_data))
+        config.close()
+        if key in config_data:
+            if logger_recording:
+                logger.info("Key for {0} -> \"{1}\"".format(key, config_data[key]))
+            return config_data[key]
+        else:
+            if logger_recording:
+                logger.info("Key for {0} -> undefined".format(key))
+            # return minecraft_operator.config.basic_config[key]
+            return default
+    except json.decoder.JSONDecodeError as err:
+        logger.error("Failed to decode file: content:\n{}".format(config.read()))
+        raise err
 def set_config(key: str, value, logger_recording = True):
     global logger
     config = open("config/launcher.json", mode="r+", encoding="utf-8")
@@ -65,21 +72,25 @@ def set_config(key: str, value, logger_recording = True):
         logger.debug("Written: {}".format(byte_sum))
     config.close()
 def get_game_config(key: str, default = None, logger_recording = True):
-    game_config = open("config/game.json", mode="r", encoding="utf-8")
-    game_config.seek(0)
-    game_config_data = json.load(game_config)
-    if logger_recording:
-        logger.info("Loaded configure: {}".format(game_config_data))
-    game_config.close()
-    if key in game_config_data:
+    try:
+        game_config = open("config/game.json", mode="r", encoding="utf-8")
+        game_config.seek(0)
+        game_config_data = json.load(game_config)
         if logger_recording:
-            logger.info("Key for {0} -> \"{1}\"".format(key, game_config_data[key]))
-        return game_config_data[key]
-    else:
-        if logger_recording:
-            logger.info("Key for {0} -> undefined".format(key))
-        # return minecraft_operator.config.basic_config[key]
-        return default
+            logger.info("Loaded configure: {}".format(game_config_data))
+        game_config.close()
+        if key in game_config_data:
+            if logger_recording:
+                logger.info("Key for {0} -> \"{1}\"".format(key, game_config_data[key]))
+            return game_config_data[key]
+        else:
+            if logger_recording:
+                logger.info("Key for {0} -> undefined".format(key))
+            # return minecraft_operator.config.basic_config[key]
+            return default
+    except json.decoder.JSONDecodeError as err:
+        logger.error("Failed to decode file: content:\n{}".format(game_config.read()))
+        raise err
 def set_game_config(key: str, value, logger_recording = True):
     global logger
     game_config = open("config/game.json", mode="r+", encoding="utf-8")
@@ -100,13 +111,17 @@ def set_game_config(key: str, value, logger_recording = True):
         logger.debug("Written: {}".format(byte_sum))
     game_config.close()
 def get_account_config(logger_recording = True) -> list:
-    account_config = open("config/account.json", mode="r", encoding="utf-8")
-    account_config.seek(0)
-    account_config_data = json.load(account_config)
-    if logger_recording:
-        logger.info("Loaded configure: {}".format(account_config_data))
-    account_config.close()
-    return account_config_data
+    try:
+        account_config = open("config/account.json", mode="r", encoding="utf-8")
+        account_config.seek(0)
+        account_config_data = json.load(account_config)
+        if logger_recording:
+            logger.info("Loaded configure: {}".format(account_config_data))
+        account_config.close()
+        return account_config_data
+    except json.decoder.JSONDecodeError as err:
+        logger.error("Failed to decode file: content:\n{}".format(account_config.read()))
+        raise err
 def set_account_config(index: int, value, logger_recording = True):
     global logger
     account_config = open("config/account.json", mode="r+", encoding="utf-8")
@@ -390,6 +405,8 @@ def blit_inputting_text(form_name: str, position_x: int, position_y: int, valiab
         form_id = 1
     elif form_name == "player_name":
         form_id = 2
+    elif form_name == "mod_query_search":
+        form_id = 3
     if forced_using_chinese_font:
         text_render = chinese_character_font_data.render(string_insert_index(get_forms(form_name), inputting_text_cursor_location, "|") if (options["input_form"] == form_id and time.time() % 1 < 0.5) else get_forms(form_name), True, colour.Black if valiable_condition else colour.Red)
     else:
@@ -460,8 +477,9 @@ def download_new_game_version_main(game_version: dict, version_name: str):
         except Exception as error:
             logger.error("An error happened:\n{}".format(error))
     logger.info("Config game version")
-    set_game_config(version_name, {"completed": False, "colour": colour.Black})
+    set_game_config(version_name, {"completed": False, "colour": colour.Black, "real_version_name": game_version["id"]})
     set_config("choosing_version", version_name)
+    version_name = get_config("choosing_version", max(os.listdir(".minecraft/versions")))
 def download_new_game_version_callback(future):
     global logger, downloading_game_version
     logger.info("Downloaded game version")
@@ -480,14 +498,43 @@ def build_resource_necessary_callback(future):
 def build_resource_necessary():
     build_resource_necessary_main()
     build_resource_necessary_callback(None)
+def fabric_modloader_downloaded_callback(future: concurrent.futures.Future):
+    global modloader_downloading_counter
+    modloader_downloading_counter -= 1
+    if (not future.cancelled()) and (future.exception() is not None):
+        logger.error("Failed to download fabric: {}".format(future.exception()))
+def load_fabric_modloader_versions():
+    global fabric_versions, loading_fabric_modloader_versions
+    loading_fabric_modloader_versions = True
+    if fabric_versions is None:
+        fabric_versions = (modloader.fabric.get_fabric_loader_versions(get_game_config(get_config("choosing_version", logger_recording=False), logger_recording=False)["real_version_name"]))
+def load_fabric_modloader_versions_callback(future: concurrent.futures.Future):
+    global loading_fabric_modloader_versions, logger
+    loading_fabric_modloader_versions = False
+    if (not future.cancelled()) and (future.exception() is not None):
+        logger.error("Failed to load fabric: {}".format(future.exception()))
+def load_modrinth_mods():
+    global loading_community_mods
+    loading_community_mods = True
+    return community_resource.modrinth.search_project(None, community_resource.modrinth.SearchReturningPage(ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_MODRINTH_RESOURCES))
+def load_modrinth_mods_callback(future: concurrent.futures.Future):
+    global logger, community_mods, loading_community_mods
+    loading_community_mods = False
+    community_mods = future.result()
+    if (not future.cancelled()) and (future.exception() is not None):
+        logger.error("Failed to load modrinth mods: {}".format(future.exception()))
+    elif not future.cancelled():
+        logger.info("Loaded modrinth mods: {0} / {1}".format(len(community_mods.hits), community_mods.total_hits))
 def launch_minecraft_main():
-    global version_name, minecraft_process, logger, building_necessary_resource, version_name
+    global version_name, minecraft_process, logger, building_necessary_resource
     building_necessary_resource = True
     minecraft_operator.launch.build_minecraft_libraries(version_name, logger, False)
     minecraft_operator.launch.built_asset_files(version_name, logger, False)
     building_necessary_resource = False
     try:
-        set_game_config(version_name, {"completed": True, "colour": get_game_config(version_name)["colour"]})
+        game_config_data_temp = get_game_config(version_name)
+        game_config_data_temp["completed"] = True
+        set_game_config(version_name, game_config_data_temp)
         argument_array = minecraft_operator.launch.build_launch_bash_array(version_name, logger)
         if isinstance(argument_array, list):
             argument_value = minecraft_operator.launch.build_launch_bash_string(version_name, logger)
@@ -586,6 +633,43 @@ def terminal_run_command(command: str):
         terminal_console_history.append("< Displayed \"{}\" in action bar.".format(text_to_display))
     elif command_token[0] == "clear":
         terminal_console_history.clear()
+    elif command_token[0] == "data":
+        if command_token[1] != "get":
+            terminal_console_history.append("! Unsupported method {}.".format(command_token[1]))
+            return None
+        if command_token[2] != "entity":
+            terminal_console_history.append("! Unsupported type {}.".format(command_token[2]))
+            return None
+        if command_token[3] != "@s":
+            terminal_console_history.append("! Unsupported target selector {}.".format(command_token[3]))
+            return None
+        if command_token[4] == "{}":
+            global_variables = globals()
+            global_variables_without_class = dict()
+            for variable in global_variables:
+                if type(global_variables[variable]).__repr__ is not object.__repr__:
+                    if not (isinstance(global_variables[variable], str) or isinstance(global_variables[variable], int) or isinstance(global_variables[variable], float) or isinstance(global_variables[variable], bool) or isinstance(global_variables[variable], list) or isinstance(global_variables[variable], dict)):
+                        global_variables_without_class[variable] = global_variables[variable].__repr__()
+                    else:
+                        global_variables_without_class[variable] = global_variables[variable]
+                elif (isinstance(global_variables[variable], str) or isinstance(global_variables[variable], int) or isinstance(global_variables[variable], float) or isinstance(global_variables[variable], bool) or isinstance(global_variables[variable], list) or isinstance(global_variables[variable], dict)):
+                    global_variables_without_class[variable] = global_variables[variable]
+                else:
+                    terminal_console_history.append("! Unsupported data type: {}.".format(variable))
+                    return None
+            terminal_console_history.append("> Data: {}.".format(nbt_loader.render_snbt(global_variables_without_class)))
+        else:
+            global_variables = globals()
+            variable = command_token[4]
+            if "options." in variable:
+                option_name = re.findall(r"(?<=options\.)\w+", variable)[0]
+                terminal_console_history.append("> Data: {}.".format(nbt_loader.render_snbt(options[option_name])))
+                return None
+            elif (isinstance(global_variables[variable], str) or isinstance(global_variables[variable], int) or isinstance(global_variables[variable], float) or isinstance(global_variables[variable], bool) or isinstance(global_variables[variable], list) or isinstance(global_variables[variable], dict)):
+                terminal_console_history.append("> Data: {}.".format(nbt_loader.render_snbt(global_variables[variable])))
+            else:
+                terminal_console_history.append("! Unsupported data type: {}.".format(variable))
+                return None
     else:
         terminal_console_history.append("! Unsupported command {}.".format(command_token[0]))
 
@@ -633,13 +717,31 @@ if not os.path.isfile("config/account.json"):
     config.write("[]")
     config.close()
 
+if not os.path.isdir("bili_api_temp"):
+    os.mkdir("bili_api_temp")
+
+if not os.path.isdir("modloader_temp"):
+    os.mkdir("modloader_temp")
+if not os.path.isdir("modloader_temp/forge"):
+    os.mkdir("modloader_temp/forge")
+if not os.path.isdir("modloader_temp/fabric"):
+    os.mkdir("modloader_temp/fabric")
+if not os.path.isdir("modloader_temp/neoforged"):
+    os.mkdir("modloader_temp/neoforged")
+
+if not os.path.isdir("community_cache"):
+    os.mkdir("community_cache")
+
 options = {
     "before_opening_terminal": 0,
     "choosing_resource_number": 0,
+    "choosing_modloader_number": 0,
     "choosing_setting_number": 0,
     "choosing_version_pages_index": 0,
     "editing_account_config": 0,
+    "fabric_modloader_pages_index": 0,
     "input_form": 0,
+    "moadrinth_mod_searching_pages_index": 0,
     "opening_menu": False,
     "pages": [
         0
@@ -665,7 +767,7 @@ setting_display_array = [
 ]
 
 # 启动器版本，常量
-LAUNCHER_VERSION_NAME = "26w43a"
+LAUNCHER_VERSION_NAME = "26w45a"
 
 PAGE_OF_VERSION_DOWNLOAD = -1
 PAGE_OF_VERSION_CHOOSING = -2
@@ -673,7 +775,10 @@ PAGE_OF_TERMINAL = -65535
 PAGE_OF_THINKING = -65536
 ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION = 26
 ELEMENT_NUMBER_OF_ONE_PAGE_IN_CHOOSING_VERSION = 28
-PREVENT_DOWNLOADING_MINECRAFT = True                                    # 阻止下载Minecraft本体
+ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC = 26
+ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_MODRINTH_RESOURCES = 17
+PREVENT_DOWNLOADING_MINECRAFT = False                                   # 阻止下载Minecraft本体
+FALLBACK_REAL_VERSION_NAME = "26.3"                                     # 回落版本名
 forms = {}
 choosing_page = 0
 # build_resource_necessary_calculating_thread = None
@@ -696,6 +801,10 @@ developer_clicks = 0                                                    # 按7�
 terminal_console_history = list()
 terminal_inputting_text = str()
 launcher_mode_is_developer = False
+fabric_versions = None
+modloader_downloading_counter = 0
+loading_fabric_modloader_versions = False
+loading_community_mods = False
 pygame.init()
 global_clock = pygame.time.Clock()
 looping = True
@@ -726,6 +835,7 @@ if len(os.listdir(".minecraft/versions")) > 1:
 # download_version_manifest()
 thread_pool_executor = ThreadPoolExecutor(max_workers=8)
 version_name = get_config("choosing_version", None)
+community_mods: community_resource.modrinth.SearchResultType = None
 try:
     while looping:
         screen.fill(colour.White)
@@ -816,6 +926,13 @@ try:
             # add_menu_squared("下载", 0)
             if downloading_game_version > 0:
                 screen.blit(chinese_character_font_data.render("有{}个版本正在下载中".format(downloading_game_version), True, colour.Black), (int(options["opening_menu"]) * 200 + 7, 714))
+            if modloader_downloading_counter > 0:
+                temp_y_location = (
+                    668 if (downloading_game_version > 0 and building_necessary_resource) else (
+                        691 if (downloading_game_version > 0 or building_necessary_resource) else 714
+                    )
+                )
+                screen.blit(chinese_character_font_data.render("有{}个模组加载器正在下载中".format(modloader_downloading_counter), True, colour.Black), (int(options["opening_menu"]) * 200 + 7, temp_y_location))
             if building_necessary_resource:
                 screen.blit(chinese_character_font_data.render("正在补全文件...", True, colour.Black), (int(options["opening_menu"]) * 200 + 7, 691 if downloading_game_version > 0 else 714))
                 # region
@@ -856,7 +973,12 @@ try:
                     display_cursor_type = pygame.SYSTEM_CURSOR_HAND
                 screen.blit(chinese_character_font_data.render(setting_display_array[i], True, colour.Black if options["choosing_setting_number"] == i else colour.White), (opening + 100 * i + 9, 44))
             if options["choosing_setting_number"] == 0:
-                pass
+                opening = int(options["opening_menu"]) * 200
+                if position_in_rect(position, opening + 10, 80, 200, 30):
+                    display_cursor_type = pygame.SYSTEM_CURSOR_NO if building_necessary_resource else pygame.SYSTEM_CURSOR_HAND
+                    pygame.draw.rect(screen, colour.WhiteSmoke, pygame.Rect(opening + 10, 80, 190, 30))
+                pygame.draw.rect(screen, colour.Gainsboro, pygame.Rect(opening + 10, 80, 190, 30), 1)
+                screen.blit(chinese_character_font_data.render("清除启动器缓存", True, colour.Black), (opening + 47, 87))
             elif options["choosing_setting_number"] == 1:
                 screen.blit(chinese_character_font_data.render("Java程序", True, colour.Black), (opening + 10, 87))
                 if position_in_rect(position, 1160, 80, 30, 30):
@@ -864,6 +986,7 @@ try:
                     display_cursor_type = pygame.SYSTEM_CURSOR_HAND
                 pygame.draw.rect(screen, colour.Gainsboro, pygame.Rect(opening + 90, 80, 1070 - opening, 30), 1)
                 icon_drawer.draw_icon_folder(screen, colour.Gainsboro, 1165, 85)
+                screen.blit(chinese_character_font_data.render(max(dict(get_config("java_executor_files", {"点击右侧图标设置Java路径": None}, False)).keys()) if get_config("java_executor_files", dict()) else "点击右侧图标设置Java路径", True, colour.Black), (opening + 97, 87))
                 # get_command_output("java --version").split()[1]
             elif options["choosing_setting_number"] == 2:
                 opening = int(options["opening_menu"]) * 200
@@ -979,7 +1102,7 @@ try:
             if time.time() - recent_download_version_manifest_temporary >= 3600 and not running_download_version_manifest:
                 download_version_manifest_thread = thread_pool_executor.submit(download_version_manifest_main)
                 download_version_manifest_thread.add_done_callback(download_version_manifest_callback)
-            if not get_gamerule("enable_minecraft_download") and PREVENT_DOWNLOADING_MINECRAFT:
+            if not get_gamerule("enable_minecraft_download", False) and PREVENT_DOWNLOADING_MINECRAFT:
                 screen.blit(chinese_character_font_data.render("为了遵守相关法律法规，SLC不再提供Minecraft下载，非常抱歉", True, colour.Black), (opening + 10, 80))
             elif options["choosing_resource_number"] == 0:
                 if len(os.listdir("temp")) > 1:
@@ -1036,6 +1159,99 @@ try:
                         screen.blit(j, (5 + int(options["opening_menu"]) * 200, 26 * i + 104))
                 else:
                     screen.blit(chinese_character_font_data.render("加载中", True, colour.Black), (1142, 80))
+            elif options["choosing_resource_number"] == 2:
+                pygame.draw.rect(screen, colour.Azure if options["choosing_modloader_number"] == 0 else colour.AliceBlue, pygame.Rect(int(options["opening_menu"]) * 200, 70, 60, 30))
+                screen.blit(font_data.render("Fabric", True, colour.Black), (opening + 7, 77))
+                pygame.draw.rect(screen, colour.Azure if options["choosing_modloader_number"] == 1 else colour.AliceBlue, pygame.Rect(int(options["opening_menu"]) * 200 + 60, 70, 55, 30))
+                screen.blit(font_data.render("Forge", True, colour.Black), (opening + 67, 77))
+                pygame.draw.rect(screen, colour.Azure if options["choosing_modloader_number"] == 2 else colour.AliceBlue, pygame.Rect(int(options["opening_menu"]) * 200 + 115, 70, 90, 30))
+                screen.blit(font_data.render("Neoforged", True, colour.Black), (opening + 122, 77))
+                screen.blit(font_data.render("{0} ({1})".format(get_config("choosing_version", logger_recording=False), dict(get_game_config(get_config("choosing_version", logger_recording=False), logger_recording=False)).get("real_version_name", FALLBACK_REAL_VERSION_NAME)), True, colour.Black), (opening + 212, 77))
+                if options["choosing_modloader_number"] == 0:
+                    # Fabric
+                    if fabric_versions is None:
+                        load_fabric_modloader_versions_thread = thread_pool_executor.submit(load_fabric_modloader_versions)
+                        load_fabric_modloader_versions_thread.add_done_callback(load_fabric_modloader_versions_callback)
+                        screen.blit(chinese_character_font_data.render("加载中", True, colour.Black), (1142, 80))
+                    else:
+                        # 页数
+                        pygame.draw.rect(screen, colour.WhiteSmoke, pygame.Rect(int(options["opening_menu"]) * 200 + 60, 100, 1140 - int(options["opening_menu"]) * 200, 30))
+                        screen.blit(font_data.render("{0} / {1}".format(options["fabric_modloader_pages_index"] + 1, math.ceil(len(fabric_versions) / ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC)), True, colour.Black), (int(options["opening_menu"]) * 200 + 68, 107))
+                        # 向前翻页
+                        if position_in_rect(position, int(options["opening_menu"]) * 200, 100, 30, 30):
+                            display_cursor_type = pygame.SYSTEM_CURSOR_HAND
+                            pygame.draw.rect(screen, colour.Gainsboro, pygame.Rect(int(options["opening_menu"]) * 200, 100, 30, 30))
+                            pygame.draw.polygon(screen, colour.LightGray, ((int(options["opening_menu"]) * 200 + 25, 105), (int(options["opening_menu"]) * 200 + 25, 125), (int(options["opening_menu"]) * 200 + 5, 115)), 1)
+                        else:
+                            pygame.draw.rect(screen, colour.LightGray, pygame.Rect(int(options["opening_menu"]) * 200, 100, 30, 30))
+                            pygame.draw.polygon(screen, colour.Silver, ((int(options["opening_menu"]) * 200 + 25, 105), (int(options["opening_menu"]) * 200 + 25, 125), (int(options["opening_menu"]) * 200 + 5, 115)), 1)
+                        # 向后翻页
+                        if position_in_rect(position, int(options["opening_menu"]) * 200 + 30, 100, 30, 30):
+                            display_cursor_type = pygame.SYSTEM_CURSOR_HAND
+                            pygame.draw.rect(screen, colour.Gainsboro, pygame.Rect(int(options["opening_menu"]) * 200 + 30, 100, 30, 30))
+                            pygame.draw.polygon(screen, colour.LightGray, ((int(options["opening_menu"]) * 200 + 35, 105), (int(options["opening_menu"]) * 200 + 35, 125), (int(options["opening_menu"]) * 200 + 55, 115)), 1)
+                        else:
+                            pygame.draw.rect(screen, colour.LightGray, pygame.Rect(int(options["opening_menu"]) * 200 + 30, 100, 30, 30))
+                            pygame.draw.polygon(screen, colour.Silver, ((int(options["opening_menu"]) * 200 + 35, 105), (int(options["opening_menu"]) * 200 + 35, 125), (int(options["opening_menu"]) * 200 + 55, 115)), 1)
+                        # 版本列表显示
+                        for i in range(ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC if len(fabric_versions) - options["fabric_modloader_pages_index"] * ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC > ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC else len(fabric_versions) - options["fabric_modloader_pages_index"] * ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC):
+                            j = font_data.render(fabric_versions[options["fabric_modloader_pages_index"] * ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC + i].loader.version_name, True, colour.Green if fabric_versions[options["fabric_modloader_pages_index"] * ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC + i].loader.is_stable() else colour.Maroon)
+                            if position_in_rect(position, int(options["opening_menu"]) * 200, 26 * i + 130, 1200 - int(options["opening_menu"]) * 200, 26):
+                                pygame.draw.rect(screen, colour.WhiteSmoke, pygame.Rect(int(options["opening_menu"]) * 200, 26 * i + 130, 1200 - int(options["opening_menu"]) * 200, 26))
+                            screen.blit(j, (5 + int(options["opening_menu"]) * 200, 26 * i + 134))
+            elif options["choosing_resource_number"] == 3:
+                pygame.draw.rect(screen, colour.Gainsboro, pygame.Rect(opening + 10, 80, 1100 - opening, 30), 1)
+                pygame.draw.rect(screen, colour.PaleGreen if position_in_rect(position, 1100, 80, 90, 30) else colour.MediumSpringGreen, pygame.Rect(1100, 80, 90, 30))
+                screen.blit(chinese_character_font_data.render("搜索", True, colour.Black), (1129, 87))
+                blit_inputting_text("mod_query_search", opening + 17, 87)
+                if position_in_rect(position, 1100, 80, 90, 30):
+                    display_cursor_type = pygame.SYSTEM_CURSOR_HAND
+                if position_in_rect(position, opening + 10, 80, 1100 - opening, 30):
+                    display_cursor_type = pygame.SYSTEM_CURSOR_IBEAM
+                if community_mods is None:
+                    if not loading_community_mods:
+                        load_community_mods_thread = thread_pool_executor.submit(load_modrinth_mods)
+                        load_community_mods_thread.add_done_callback(load_modrinth_mods_callback)
+                    screen.blit(chinese_character_font_data.render("加载中", True, colour.Black), (1142, 120))
+                else:
+                    # 页数
+                    pygame.draw.rect(screen, colour.WhiteSmoke, pygame.Rect(int(options["opening_menu"]) * 200 + 60, 120, 1140 - int(options["opening_menu"]) * 200, 30))
+                    # screen.blit(font_data.render("{0} / {1}".format(options["fabric_modloader_pages_index"] + 1, math.ceil(len(fabric_versions) / ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC)), True, colour.Black), (int(options["opening_menu"]) * 200 + 68, 107))
+                    screen.blit(font_data.render("{0} / {1}".format(
+                        options["moadrinth_mod_searching_pages_index"] + 1,
+                        math.ceil(community_mods.total_hits / ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_MODRINTH_RESOURCES)
+                    ), True, colour.Black), (int(options["opening_menu"]) * 200 + 68, 127))
+                    # 向前翻页
+                    if position_in_rect(position, int(options["opening_menu"]) * 200, 100, 30, 30):
+                        display_cursor_type = pygame.SYSTEM_CURSOR_HAND
+                        pygame.draw.rect(screen, colour.Gainsboro, pygame.Rect(int(options["opening_menu"]) * 200, 120, 30, 30))
+                        pygame.draw.polygon(screen, colour.LightGray, ((int(options["opening_menu"]) * 200 + 25, 125), (int(options["opening_menu"]) * 200 + 25, 145), (int(options["opening_menu"]) * 200 + 5, 135)), 1)
+                    else:
+                        pygame.draw.rect(screen, colour.LightGray, pygame.Rect(int(options["opening_menu"]) * 200, 120, 30, 30))
+                        pygame.draw.polygon(screen, colour.Silver, ((int(options["opening_menu"]) * 200 + 25, 125), (int(options["opening_menu"]) * 200 + 25, 145), (int(options["opening_menu"]) * 200 + 5, 135)), 1)
+                    # 向后翻页
+                    if position_in_rect(position, int(options["opening_menu"]) * 200 + 30, 100, 30, 30):
+                        display_cursor_type = pygame.SYSTEM_CURSOR_HAND
+                        pygame.draw.rect(screen, colour.Gainsboro, pygame.Rect(int(options["opening_menu"]) * 200 + 30, 120, 30, 30))
+                        pygame.draw.polygon(screen, colour.LightGray, ((int(options["opening_menu"]) * 200 + 35, 125), (int(options["opening_menu"]) * 200 + 35, 145), (int(options["opening_menu"]) * 200 + 55, 135)), 1)
+                    else:
+                        pygame.draw.rect(screen, colour.LightGray, pygame.Rect(int(options["opening_menu"]) * 200 + 30, 120, 30, 30))
+                        pygame.draw.polygon(screen, colour.Silver, ((int(options["opening_menu"]) * 200 + 35, 125), (int(options["opening_menu"]) * 200 + 35, 145), (int(options["opening_menu"]) * 200 + 55, 135)), 1)
+                    # 模组列表显示
+                    for i in range(len(community_mods.hits)):
+                        j = font_data.render(community_mods.hits[i].title, True, colour.Black)
+                        if position_in_rect(position, int(options["opening_menu"]) * 200, 26 * i + 150, 1200 - int(options["opening_menu"]) * 200, 26):
+                            pygame.draw.rect(screen, colour.WhiteSmoke, pygame.Rect(int(options["opening_menu"]) * 200, 26 * i + 150, 1200 - int(options["opening_menu"]) * 200, 26))
+                            # 分割线后
+                            mod_icon = pillow_to_pygame(Image.open("community_cache/modrinth/icons/{0}{1}".format(community_mods.hits[i].project_id, re.findall(r"\.\w+$", community_mods.hits[i].icon_url)[0])).resize((64, 64), Image.Resampling.LANCZOS))
+                            screen.blit(mod_icon, (int(options["opening_menu"]) * 200 + 18, 610))
+                            screen.blit(font_data.render(community_mods.hits[i].title, True, colour.Black), (int(options["opening_menu"]) * 200 + 100, 610))
+                            screen.blit(font_data.render(community_mods.hits[i].author, True, colour.Black), (int(options["opening_menu"]) * 200 + 100, 630))
+                            screen.blit(font_data.render("{}...".format(community_mods.hits[i].description[:100]), True, colour.Gray), (int(options["opening_menu"]) * 200 + 100, 650))
+                        screen.blit(j, (5 + int(options["opening_menu"]) * 200, 26 * i + 154))
+                        # TODO
+                    # 分割线
+                    pygame.draw.line(screen, colour.Gainsboro, (int(options["opening_menu"]) * 200 + 10, 592), (1190, 592))
         if choosing_page == PAGE_OF_VERSION_DOWNLOAD:
             # 版本下载页面
             opening = int(options["opening_menu"]) * 200
@@ -1156,7 +1372,15 @@ try:
                                 options["choosing_setting_number"] = i
                                 logger.info("Switched action to {0}.{1}".format(choosing_page + 1, options["choosing_setting_number"]))
                         if options["choosing_setting_number"] == 0:
-                            pass
+                            if position_in_rect(position, int(options["opening_menu"]) * 200 + 10, 80, 200, 30):
+                                for folder_name in ["bili_api_temp", "community_cache", "modloader_temp/fabric", "modloader_temp/forge", "modloader_temp/neoforged"]:
+                                    for temp_filename in os.listdir(folder_name):
+                                        os.remove("{0}/{1}".format(folder_name, temp_filename))
+                                for temp_filename in os.listdir("temp"):
+                                    if temp_filename != "command_output.txt":
+                                        os.remove("temp/{}".format(temp_filename))
+                                community_mods = None
+                                loading_community_mods = False
                         elif options["choosing_setting_number"] == 1:
                             if position_in_rect(position, 1160, 80, 30, 30):
                                 java_exe_file: str = fileopenbox("选择Java程序文件", "Stonal's Launcher Collection", "*", [["java.exe", "Java程序"]], False)
@@ -1264,6 +1488,41 @@ try:
                                         inputting_text_cursor_location = len(get_forms("game_version_name"))
                                         choosing_page = -1
                                         logger.info("Switched to page of downloading versions")
+                        if options["choosing_resource_number"] == 2:
+                            if position_in_rect(position, int(options["opening_menu"]) * 200, 70, 60, 30):
+                                options["choosing_modloader_number"] = 0
+                                logger.info("Switched action to 3.2.{}".format(options["choosing_modloader_number"]))
+                            elif position_in_rect(position, int(options["opening_menu"]) * 200 + 60, 70, 55, 30):
+                                options["choosing_modloader_number"] = 1
+                                logger.info("Switched action to 3.2.{}".format(options["choosing_modloader_number"]))
+                            elif position_in_rect(position, int(options["opening_menu"]) * 200 + 115, 70, 85, 30):
+                                options["choosing_modloader_number"] = 2
+                                logger.info("Switched action to 3.2.{}".format(options["choosing_modloader_number"]))
+                            if options["choosing_modloader_number"] == 0:
+                                if position_in_rect(position, int(options["opening_menu"]) * 200, 100, 30, 30):
+                                    options["fabric_modloader_pages_index"] -= 1
+                                    options["fabric_modloader_pages_index"] %= math.ceil(len(fabric_versions) / ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC)
+                                if position_in_rect(position, int(options["opening_menu"]) * 200 + 30, 100, 30, 30):
+                                    options["fabric_modloader_pages_index"] += 1
+                                    options["fabric_modloader_pages_index"] %= math.ceil(len(fabric_versions) / ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC)
+                                if fabric_versions is not None:
+                                    for i in range(ELEMENT_NUMBER_OF_ONE_PAGE_IN_CHOOSING_VERSION if len(fabric_versions) - options["choosing_version_pages_index"] * ELEMENT_NUMBER_OF_ONE_PAGE_IN_CHOOSING_VERSION > ELEMENT_NUMBER_OF_ONE_PAGE_IN_CHOOSING_VERSION else len(fabric_versions) - options["choosing_version_pages_index"] * ELEMENT_NUMBER_OF_ONE_PAGE_IN_CHOOSING_VERSION):
+                                        if position_in_rect(position, int(options["opening_menu"]) * 200, 26 * i + 130, 1200 - opening, 26):
+                                            modloader_downloading_counter += 1
+                                            logger.info("Downloading fabric version {}".format(fabric_versions[ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC * options["fabric_modloader_pages_index"] + i].loader.version_name))
+                                            downloading_fabric_modloader_thread = thread_pool_executor.submit(modloader.fabric.download_fabric_modloader, fabric_versions[ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC * options["fabric_modloader_pages_index"] + i], os.path.abspath(".minecraft/versions/{}".format(get_config("choosing_version"))), logger)
+                                            downloading_fabric_modloader_thread.add_done_callback(fabric_modloader_downloaded_callback)
+                                            choosing_page = 0
+                                            send_global_message("已开始下载 Fabric {}".format(fabric_versions[ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC * options["fabric_modloader_pages_index"] + i].loader.version_name))
+                        if options["choosing_resource_number"] == 3:
+                            if position_in_rect(position, opening + 10, 80, 1100 - opening, 30):
+                                options["input_form"] = 3
+                                input_text = get_forms("mod_query_search")
+                            else:
+                                options["input_form"] = 0
+                            if position_in_rect(position, 1100, 80, 90, 30):
+                                load_community_mods_thread = thread_pool_executor.submit(community_resource.modrinth.search_project, get_forms("mod_query_search") if get_forms("mod_query_search") else None, community_resource.modrinth.SearchReturningPage(ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_MODRINTH_RESOURCES))
+                                load_community_mods_thread.add_done_callback(load_modrinth_mods_callback)
                     elif choosing_page == PAGE_OF_VERSION_DOWNLOAD:
                         # 版本下载页面交互逻辑
                         opening = int(options["opening_menu"]) * 200
@@ -1276,6 +1535,7 @@ try:
                                 download_new_game_version_thread = thread_pool_executor.submit(download_new_game_version_main, chosen_game_version_in_download_page, get_forms("game_version_name"))
                                 download_new_game_version_thread.add_done_callback(download_new_game_version_callback)
                                 choosing_page = 0
+                                send_global_message("已开始下载 Minecraft {}".format(get_forms("game_version_name")))
                     elif choosing_page == PAGE_OF_VERSION_CHOOSING:
                         # 版本选择页面交互逻辑
                         opening = int(options["opening_menu"]) * 200
@@ -1315,13 +1575,43 @@ try:
                                 break
                 elif event.button == 4:
                     logger.info("Middle rolled at {} (up)".format(position))
+                    if choosing_page == 2:
+                        # 资源 页面交互逻辑
+                        if options["choosing_resource_number"] == 1:
+                            options["pages_index"] -= 1
+                            options["pages_index"] %= game_version_total_pages
+                        elif options["choosing_resource_number"] == 2:
+                            if options["choosing_modloader_number"] == 0:
+                                if fabric_versions is not None:
+                                    options["fabric_modloader_pages_index"] -= 1
+                                    options["fabric_modloader_pages_index"] %= math.ceil(len(fabric_versions) / ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC)
+                    elif choosing_page == PAGE_OF_VERSION_CHOOSING:
+                        # 版本选择页面交互逻辑
+                        options["choosing_version_pages_index"] -= 1
+                        options["choosing_version_pages_index"] %= math.ceil(len(os.listdir(".minecraft/versions")) / ELEMENT_NUMBER_OF_ONE_PAGE_IN_CHOOSING_VERSION)
                 elif event.button == 5:
                     logger.info("Middle rolled at {} (down)".format(position))
+                    if choosing_page == 2:
+                        # 资源 页面交互逻辑
+                        if options["choosing_resource_number"] == 1:
+                            options["pages_index"] += 1
+                            options["pages_index"] %= game_version_total_pages
+                        elif options["choosing_resource_number"] == 2:
+                            if options["choosing_modloader_number"] == 0:
+                                if fabric_versions is not None:
+                                    options["fabric_modloader_pages_index"] += 1
+                                    options["fabric_modloader_pages_index"] %= math.ceil(len(fabric_versions) / ELEMENT_NUMBER_OF_ONE_PAGE_IN_DOWNLOAD_VERSION_FABRIC)
+                    elif choosing_page == PAGE_OF_VERSION_CHOOSING:
+                        # 版本选择页面交互逻辑
+                        options["choosing_version_pages_index"] += 1
+                        options["choosing_version_pages_index"] %= math.ceil(len(os.listdir(".minecraft/versions")) / ELEMENT_NUMBER_OF_ONE_PAGE_IN_CHOOSING_VERSION)
         # 输入逻辑
         if options["input_form"] == 1:
             forms["game_version_name"] = input_text
         elif options["input_form"] == 2:
             forms["player_name"] = input_text
+        elif options["input_form"] == 3:
+            forms["mod_query_search"] = input_text
         # 消息
         for message in messages_array:
             message_surface: pygame.Surface = None
@@ -1357,7 +1647,7 @@ finally:
     # .----------'  |  |  '----------.  |  '----------.
     # '-------------'  '-------------'  '-------------'
     # 作者 石辰子
-    # 审核 石印社软件审核室
+    # 审核 石印社审核处软件审核委员会
     # Author:                                                           Stonal
     # Checker:                                                          Stonal's Printing Press
     #                                                                   Software Checking Room
